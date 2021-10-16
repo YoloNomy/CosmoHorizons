@@ -95,7 +95,7 @@ class CosmoHorizon:
         da = a * self.cosmo.H(z).to('Gyr-1').value
         return da
 
-    def compute_horizon(self, a0=1e-6, max_step=0.001):
+    def compute_horizon(self, output_file, a0=1e-6, max_step=0.001):
         if self.cosmo is None:
             print('No cosmo, no computation')
             return
@@ -115,6 +115,7 @@ class CosmoHorizon:
                }
         self.cosmo = None
         self.cosmo_tab = pd.DataFrame(dic)
+        self.cosmo_tab.to_csv(output_file)
         self.t_today = interp_nb(1, scale_factor, time)
 
     @staticmethod
