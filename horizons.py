@@ -6,6 +6,7 @@ import pandas as pd
 from numba import njit
 from matplotlib import animation
 import matplotlib.cm as cm
+from scipy.optimize import fsolve
 
 
 @njit(cache=True)
@@ -80,6 +81,12 @@ class CosmoHorizon:
     def __init__(self, cosmo=None, file=None):
         if cosmo is not None:
             self.cosmo = set_cosmo(cosmo)
+            if self.cosmo.Ok0 < 1:
+                a = self.cosmo.Om0 / (self.cosmo.Om0 - 1)
+                z_amax = fsolve(self.cosmo.H, 1/a - 1)
+                self.t_amax = self.cosmo.age(z_amax)[0].value
+            else:
+                self.t_amax = np.inf
         else:
             self.cosmo = None
         if file is not None:
@@ -93,6 +100,8 @@ class CosmoHorizon:
     def _da_dt(self, t, a):
         z = 1/a - 1
         da = a * self.cosmo.H(z).to('Gyr-1').value
+        if t > self.t_amax:
+            da *= -1
         return da
 
     def compute_horizon(self, output_file, a0=1e-6, max_step=0.001):
@@ -116,7 +125,10 @@ class CosmoHorizon:
         self.cosmo = None
         self.cosmo_tab = pd.DataFrame(dic)
         self.cosmo_tab.to_csv(output_file)
-        self.t_today = interp_nb(1, scale_factor, time)
+        mask = self.cosmo_tab['time'] < self.t_amax
+        self.t_today = interp_nb(1,
+                                 self.cosmo_tab['a'][mask].to_numpy(),
+                                 self.cosmo_tab['time'][mask].to_numpy())
 
     @staticmethod
     def compute_event_h(time, scale_factor):
@@ -286,3 +298,7 @@ class AnimHorizon(object):
                                             blit=blit,
                                             repeat=repeat)
         plt.show()
+
+    def save_anim(self, fname, fps=60, **kwargs):
+        writermp4 = animation.FFMpegWriter(fps=60)
+        self.anim.save(fname, writer=writermp4, **kwargs)
