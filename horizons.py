@@ -132,7 +132,7 @@ class CosmoHorizon:
                     'part_h': 'Particle Horizon $L_p$ in Gly'
                     }
 
-        plt.figure()
+        plt.figure(dpi=200)
 
         plt.xlabel(plot_dic[d1])
         plt.ylabel(plot_dic[d2])
