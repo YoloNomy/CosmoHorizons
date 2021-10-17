@@ -95,7 +95,7 @@ class CosmoHorizon:
         da = a * self.cosmo.H(z).to('Gyr-1').value
         return da
 
-    def compute_horizon(self, a0=1e-6, max_step=0.001):
+    def compute_horizon(self, output_file, a0=1e-6, max_step=0.001):
         if self.cosmo is None:
             print('No cosmo, no computation')
             return
@@ -115,6 +115,7 @@ class CosmoHorizon:
                }
         self.cosmo = None
         self.cosmo_tab = pd.DataFrame(dic)
+        self.cosmo_tab.to_csv(output_file)
         self.t_today = interp_nb(1, scale_factor, time)
 
     @staticmethod
@@ -150,15 +151,15 @@ class CosmoHorizon:
             plt.ylim(ylim[0], ylim[1])
         plt.show()
 
-    def sim_anim(self, t_range, nframes, nparts=1, gen_lim=[0.1, 1.5], lim=20, norm=None):
+    def sim_anim(self, t_range, nframes, nparts=1, gen_lim=[0.1, 1.5], lim=20, norm=None, **kwargs):
         self.anim = AnimHorizon(self.cosmo_tab,
                                 t_range,
                                 nframes,
                                 nparts=nparts,
                                 gen_lim=gen_lim,
                                 lim=lim,
-                                norm=None)
-        self.anim.animate()
+                                norm=norm)
+        self.anim.animate(**kwargs)
 
 
 class AnimHorizon(object):
@@ -276,11 +277,12 @@ class AnimHorizon(object):
                                     1/self.H * self.circle[1] * self.norm_factor)
         return self.hubble_h_plot, self.evt_h_plot, self.parts, self.photons
 
-    def animate(self):
+    def animate(self, interval=5, blit=False, repeat=False):
         self.anim = animation.FuncAnimation(self.fig,
                                             self.ani_update,
                                             init_func=self._ani_init,
                                             frames=self.nframes,
-                                            interval=5, blit=True,
-                                            repeat=True)
+                                            interval=interval,
+                                            blit=blit,
+                                            repeat=repeat)
         plt.show()
