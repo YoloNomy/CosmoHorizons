@@ -23,7 +23,7 @@ old_step = OdeSolver.step
 def new_init(self, fun, t0, y0, t_bound, vectorized, support_complex=False):
 
     # define the progress bar
-    self.pbar = tqdm(total=t_bound - t0, unit='ut', initial=t0, ascii=True, desc='IVP')
+    self.pbar = tqdm(total=t_bound - t0, unit='Gyr', initial=t0, desc='IVP')
     self.last_t = t0
 
     # call the old method - we still want to do the old things too!
@@ -263,7 +263,7 @@ class CosmoHorizon:
             da *= -1
         return da
 
-    def compute_horizon(self, output_file, max_t=1e4, a0=1e-6, max_step=100):
+    def compute_horizon(self, output_file, max_t=1e2, a0=1e-6, max_step=100):
         """Compute the cosmology in funtio of time.
 
         Parameters
@@ -294,17 +294,15 @@ class CosmoHorizon:
         evt_h = self.compute_event_h(time, scale_factor)
         H = dscale / scale_factor[:-1]
 
-        tmask = time <= max_t
-        dic = {'time': time[tmask],
-               'a': scale_factor[tmask],
-               'dadt': dscale[tmask[:-1]],
-               'H': H[tmask[:-1]],
-               'part_h': part_h[tmask[:-1]],
-               'evt_h': evt_h[tmask[:-1]],
-               'H_h': 1 / H[tmask[:-1]]
+        dic = {'time': time[:-1],
+               'a': scale_factor[:-1],
+               'dadt': dscale,
+               'H': H,
+               'part_h': part_h,
+               'evt_h': evt_h,
+               'H_h': 1 / H
                }
 
-        self.cosmo = None
         self.cosmo_tab = pd.DataFrame(dic)
         self.cosmo_tab.to_csv(output_file)
         mask = self.cosmo_tab['time'] < self.t_amax
