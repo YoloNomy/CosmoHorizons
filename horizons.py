@@ -300,5 +300,5 @@ class AnimHorizon(object):
         plt.show()
 
     def save_anim(self, fname, fps=60, **kwargs):
-        writermp4 = animation.FFMpegWriter(fps=60)
+        writermp4 = animation.FFMpegWriter(fps=fps)
         self.anim.save(fname, writer=writermp4, **kwargs)
