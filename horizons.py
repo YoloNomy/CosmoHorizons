@@ -11,6 +11,21 @@ from scipy.optimize import fsolve
 
 @njit(cache=True)
 def compute_evt_h(time, scale_factor):
+    """Compute the event horizon.
+
+    Parameters
+    ----------
+    time : numpy.array(float)
+        Times at which compute the event horizon.
+    scale_factor : numpy.array(float)
+        a(t).
+
+    Returns
+    -------
+    numpy.array(float)
+        Cosmological event horizon.
+
+    """
     evt_h = np.zeros(len(time)-1)
     for i in range(len(time[:-1])):
         evt_h[i] = scale_factor[i] * np.sum(1/scale_factor[i:-1] * (time[i+1:] - time[i:-1]))
@@ -19,11 +34,52 @@ def compute_evt_h(time, scale_factor):
 
 @njit(cache=True)
 def interp_nb(x_vals, x, y):
+    """Numba interpolation.
+
+    Parameters
+    ----------
+    x_vals : float
+        Value to interpolate.
+    x : numpy.array(float)
+        x values array.
+    y : numpy.array(float)
+         y = f(x) values array.
+
+    Returns
+    -------
+    float
+        f(x_vals).
+
+    """
     return np.interp(x_vals, x, y)
 
 
 @njit(cache=True)
 def update_r(r, ang, H_t, dt):
+    """Update proper distance of non-moving object.
+
+    Parameters
+    ----------
+    r : numpy.array(float)
+        Objects proper distances.
+    ang : numpy.array(float)
+        Ojects angular positions.
+    H_t : float
+        Hubble parameter H(t) in Gyr$^-1$.
+    dt : float
+        Time step in Gyr.
+
+    Returns
+    -------
+    numpy.array(float)
+        New position after expansion.
+
+    Notes
+    -----
+    The evolution is given by :
+    ..maths:
+        \frac{dr}{dt} = H(t) r
+    """
     new_r = r + H_t * r * dt
     xp, yp = new_r * np.cos(ang), new_r * np.sin(ang)
     return new_r, ang, xp, yp
@@ -31,6 +87,30 @@ def update_r(r, ang, H_t, dt):
 
 @njit(cache=True)
 def update_rw(r, ang, H_t, dt):
+    """Update photons positions.
+
+    Parameters
+    ----------
+    r : numpy.array(float)
+        Photons proper distances.
+    ang : type
+        Photons angular positions.
+    H_t : float
+        Hubble parameter H(t) in Gyr$^-1$.
+    dt : float
+        Time step in Gyr.
+
+    Returns
+    -------
+    numpy.array(float)
+        New photons positions.
+
+    Notes
+    -----
+    The evolution is given by :
+    ..maths:
+        \frac{dr}{dt} = H(t) r - c
+    """
     new_r = r + r * H_t * dt - dt
     new_r, ang = new_r[new_r > 0], ang[new_r > 0]
     xp, yp = new_r * np.cos(ang), new_r * np.sin(ang)
@@ -78,7 +158,29 @@ def set_cosmo(cosmo):
 
 
 class CosmoHorizon:
+    """Class to compute cosmological horizons.
+
+    Parameters
+    ----------
+    cosmo : dict/str/astropy.cosmology.FLRW
+        Cosmological model.
+    file : str
+        File that contains already computed cosmology.
+
+    Attributes
+    ----------
+    t_amax : float
+        Time when $\frac{da}{dt} = 0$.
+    cosmo_tab : pandas.DataFrame
+        Computed data.
+    t_today : float
+        Time when a = 1.
+    cosmo
+
+    """
+
     def __init__(self, cosmo=None, file=None):
+        """Init the CosmoHorizon class."""
         if cosmo is not None:
             self.cosmo = set_cosmo(cosmo)
             if self.cosmo.Ok0 < 1:
@@ -98,30 +200,64 @@ class CosmoHorizon:
             self.cosmo_tab = None
 
     def _da_dt(self, t, a):
+        """Scale factor differential equation.
+
+        Parameters
+        ----------
+        t : float
+            Time in Gyr.
+        a : float
+            Scale factor.
+
+        Returns
+        -------
+        float
+            $\frac{da}{dt}$ at time t.
+
+        """
         z = 1/a - 1
         da = a * self.cosmo.H(z).to('Gyr-1').value
         if t > self.t_amax:
             da *= -1
         return da
 
-    def compute_horizon(self, output_file, a0=1e-6, max_step=0.001):
+    def compute_horizon(self, output_file, a0=1e-6, max_step=0.1):
+        """Compute the cosmology in funtio of time.
+
+        Parameters
+        ----------
+        output_file : str
+            A file to store results.
+        a0 : float
+            Scale factor taking as starting point.
+        max_step : float
+            Maximum time step between two points in Gyr.
+
+        Returns
+        -------
+        None
+            Write a csv file and set self.cosmo_tab.
+
+        """
         if self.cosmo is None:
             print('No cosmo, no computation')
             return
         res = scipy.integrate.solve_ivp(self._da_dt, [0, np.inf], y0=[a0], max_step=max_step)
         time = res['t']
         scale_factor = res['y'][0]
-        dscale = (scale_factor[1:]-scale_factor[:-1])/(time[1:] - time[:-1])
-        part_h = scale_factor[:-1] * np.cumsum(1/scale_factor[:-1] * (time[1:] - time[:-1]))
+        dscale = (scale_factor[1:]-scale_factor[:-1]) / (time[1:] - time[:-1])
+        part_h = scale_factor[:-1] * np.cumsum(1 / scale_factor[:-1] * (time[1:] - time[:-1]))
         evt_h = self.compute_event_h(time, scale_factor)
-        H = dscale/scale_factor[:-1]
+        H = dscale / scale_factor[:-1]
         dic = {'time': time[:-1],
                'a': scale_factor[:-1],
                'dadt': dscale,
                'H': H,
                'part_h': part_h,
-               'evt_h': evt_h
+               'evt_h': evt_h,
+               'H_h': 1 / H
                }
+
         self.cosmo = None
         self.cosmo_tab = pd.DataFrame(dic)
         self.cosmo_tab.to_csv(output_file)
@@ -132,10 +268,49 @@ class CosmoHorizon:
 
     @staticmethod
     def compute_event_h(time, scale_factor):
+        """Compute the event horizon.
+
+        Parameters
+        ----------
+        time : numpy.array(float)
+            Times at which compute the event horizon.
+        scale_factor : numpy.array(float)
+            a(t).
+
+        Returns
+        -------
+        numpy.array(float)
+            Cosmological event horizon.
+
+        """
         evt_h = compute_evt_h(time, scale_factor)
         return evt_h
 
     def plot(self, d1, d2, xlim=None, ylim=None):
+        """Plot data x = d1, y = d2.
+
+        Parameters
+        ----------
+        d1 : str
+            x axis parameter.
+        d2 : type
+            y axis parameter.
+        xlim : type
+            plot xlim.
+        ylim : type
+            plot ylim.
+
+        Returns
+        -------
+        None
+            Just plot data.
+
+        Notes
+        -----
+        Available data are :
+        'time', 'H', 'dadt', 'H_h', 'evt_h', 'part_h'
+
+        """
         plot_dic = {'time': 'Time in Gyr',
                     'H': 'Hubble parameter H in Gly',
                     'a': 'Scale factor a',
@@ -164,6 +339,31 @@ class CosmoHorizon:
         plt.show()
 
     def sim_anim(self, t_range, nframes, nparts=1, gen_lim=[0.1, 1.5], lim=20, norm=None, **kwargs):
+        """Create an animation.
+
+        Parameters
+        ----------
+        t_range : list(float, float)
+            Time range of the animation in Gyr.
+        nframes : int
+            Number of images frames.
+        nparts : int
+            Number of particles.
+        gen_lim : list(float, float)
+            Range of particles generation in Glyr.
+        lim : float
+            Plot limit.
+        norm : str, opt
+            'H_h' or 'evt_h' -> normalize coordinates.
+        **kwargs : type
+            AnimHorizon kwargs.
+
+        Returns
+        -------
+        type
+            Description of returned object.
+
+        """
         self.anim = AnimHorizon(self.cosmo_tab,
                                 t_range,
                                 nframes,
