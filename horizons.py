@@ -8,6 +8,48 @@ from matplotlib import animation
 import matplotlib.cm as cm
 from scipy.optimize import fsolve
 
+from scipy.integrate._ivp.rk import OdeSolver  # this is the class we will monkey patch
+
+from tqdm import tqdm
+
+# monkey patching the ode solvers with a progress bar #
+
+# save the old methods - we still need them
+old_init = OdeSolver.__init__
+old_step = OdeSolver.step
+
+
+# define our own methods
+def new_init(self, fun, t0, y0, t_bound, vectorized, support_complex=False):
+
+    # define the progress bar
+    self.pbar = tqdm(total=t_bound - t0, unit='ut', initial=t0, ascii=True, desc='IVP')
+    self.last_t = t0
+
+    # call the old method - we still want to do the old things too!
+    old_init(self, fun, t0, y0, t_bound, vectorized, support_complex)
+
+
+def new_step(self):
+    # call the old method
+    old_step(self)
+
+    # update the bar
+    tst = self.t - self.last_t
+    self.pbar.update(tst)
+    self.last_t = self.t
+
+    # close the bar if the end is reached
+    if self.t >= self.t_bound:
+        self.pbar.close()
+
+
+# overwrite the old methods with our customized ones
+OdeSolver.__init__ = new_init
+OdeSolver.step = new_step
+
+# END OF MONKEY PATCHING #
+
 
 @njit(cache=True)
 def compute_evt_h(time, scale_factor):
@@ -183,7 +225,7 @@ class CosmoHorizon:
         """Init the CosmoHorizon class."""
         if cosmo is not None:
             self.cosmo = set_cosmo(cosmo)
-            if self.cosmo.Ok0 < 1:
+            if self.cosmo.Ok0 < 0:
                 a = self.cosmo.Om0 / (self.cosmo.Om0 - 1)
                 z_amax = fsolve(self.cosmo.H, 1/a - 1)
                 self.t_amax = self.cosmo.age(z_amax)[0].value
@@ -221,7 +263,7 @@ class CosmoHorizon:
             da *= -1
         return da
 
-    def compute_horizon(self, output_file, a0=1e-6, max_step=0.1):
+    def compute_horizon(self, output_file, max_t=1e4, a0=1e-6, max_step=100):
         """Compute the cosmology in funtio of time.
 
         Parameters
@@ -242,20 +284,24 @@ class CosmoHorizon:
         if self.cosmo is None:
             print('No cosmo, no computation')
             return
-        res = scipy.integrate.solve_ivp(self._da_dt, [0, np.inf], y0=[a0], max_step=max_step)
+        res = scipy.integrate.solve_ivp(self._da_dt, [0, max_t + 1],
+                                        y0=[a0],
+                                        max_step=max_step)
         time = res['t']
         scale_factor = res['y'][0]
         dscale = (scale_factor[1:]-scale_factor[:-1]) / (time[1:] - time[:-1])
         part_h = scale_factor[:-1] * np.cumsum(1 / scale_factor[:-1] * (time[1:] - time[:-1]))
         evt_h = self.compute_event_h(time, scale_factor)
         H = dscale / scale_factor[:-1]
-        dic = {'time': time[:-1],
-               'a': scale_factor[:-1],
-               'dadt': dscale,
-               'H': H,
-               'part_h': part_h,
-               'evt_h': evt_h,
-               'H_h': 1 / H
+
+        tmask = time <= max_t
+        dic = {'time': time[tmask],
+               'a': scale_factor[tmask],
+               'dadt': dscale[tmask[:-1]],
+               'H': H[tmask[:-1]],
+               'part_h': part_h[tmask[:-1]],
+               'evt_h': evt_h[tmask[:-1]],
+               'H_h': 1 / H[tmask[:-1]]
                }
 
         self.cosmo = None
@@ -266,8 +312,7 @@ class CosmoHorizon:
                                  self.cosmo_tab['a'][mask].to_numpy(),
                                  self.cosmo_tab['time'][mask].to_numpy())
 
-    @staticmethod
-    def compute_event_h(time, scale_factor):
+    def compute_event_h(self, time, scale_factor):
         """Compute the event horizon.
 
         Parameters
@@ -283,7 +328,11 @@ class CosmoHorizon:
             Cosmological event horizon.
 
         """
+        def H_inv(z):
+            return 1 / self.cosmo.H(z).to('Gyr-1').value
         evt_h = compute_evt_h(time, scale_factor)
+        last_z = 1 / scale_factor[-1] - 1
+        evt_h += scale_factor[:-1] * scipy.integrate.quad(H_inv, -1 + 1e-20, last_z)[0]
         return evt_h
 
     def plot(self, d1, d2, xlim=None, ylim=None):
