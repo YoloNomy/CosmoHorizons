@@ -273,7 +273,7 @@ class CosmoHorizon:
         scale_factor = res['y'][0]
         dscale = (scale_factor[1:] - scale_factor[:-1]) / (time[1:] - time[:-1])
         part_h = scale_factor[:-1] * np.cumsum(1 / scale_factor[:-1] * (time[1:] - time[:-1]))
-        evt_h = self.compute_event_h(time, scale_factor)
+        evt_h = self._compute_event_h(time, scale_factor)
         H = dscale / scale_factor[:-1]
 
         dic = {'time': time[:-1],
@@ -292,7 +292,7 @@ class CosmoHorizon:
                                  self.cosmo_tab['a'][mask].to_numpy(),
                                  self.cosmo_tab['time'][mask].to_numpy())
 
-    def compute_event_h(self, time, scale_factor):
+    def _compute_event_h(self, time, scale_factor):
         """Compute the event horizon.
 
         Parameters
