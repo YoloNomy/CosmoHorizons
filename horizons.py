@@ -1,3 +1,5 @@
+"""Cosmological horizons."""
+
 import numpy as np
 import matplotlib.pyplot as plt
 import astropy.cosmology as acosmo
@@ -7,13 +9,14 @@ from numba import njit
 from matplotlib import animation
 import matplotlib.cm as cm
 from scipy.optimize import fsolve
-
-from scipy.integrate._ivp.rk import OdeSolver  # this is the class we will monkey patch
-
+from scipy.integrate._ivp.rk import OdeSolver
 from tqdm import tqdm
 
-# monkey patching the ode solvers with a progress bar #
 
+# MONKEY PATCHING FROM :
+# https://towardsdatascience.com/do-stuff-at-each-ode-integration-step-monkey-patching-solve-ivp-359b39d5f2
+
+# monkey patching the ode solvers with a progress bar #
 # save the old methods - we still need them
 old_init = OdeSolver.__init__
 old_step = OdeSolver.step
@@ -52,29 +55,6 @@ OdeSolver.step = new_step
 
 
 @njit(cache=True)
-def compute_evt_h(time, scale_factor):
-    """Compute the event horizon.
-
-    Parameters
-    ----------
-    time : numpy.array(float)
-        Times at which compute the event horizon.
-    scale_factor : numpy.array(float)
-        a(t).
-
-    Returns
-    -------
-    numpy.array(float)
-        Cosmological event horizon.
-
-    """
-    evt_h = np.zeros(len(time)-1)
-    for i in range(len(time[:-1])):
-        evt_h[i] = scale_factor[i] * np.sum(1/scale_factor[i:-1] * (time[i+1:] - time[i:-1]))
-    return evt_h
-
-
-@njit(cache=True)
 def interp_nb(x_vals, x, y):
     """Numba interpolation.
 
@@ -98,7 +78,7 @@ def interp_nb(x_vals, x, y):
 
 @njit(cache=True)
 def update_r(r, ang, H_t, dt):
-    """Update proper distance of non-moving object.
+    r"""Update proper distance of non-moving object.
 
     Parameters
     ----------
@@ -129,7 +109,7 @@ def update_r(r, ang, H_t, dt):
 
 @njit(cache=True)
 def update_rw(r, ang, H_t, dt):
-    """Update photons positions.
+    r"""Update photons positions.
 
     Parameters
     ----------
@@ -289,7 +269,7 @@ class CosmoHorizon:
                                         max_step=max_step)
         time = res['t']
         scale_factor = res['y'][0]
-        dscale = (scale_factor[1:]-scale_factor[:-1]) / (time[1:] - time[:-1])
+        dscale = (scale_factor[1:] - scale_factor[:-1]) / (time[1:] - time[:-1])
         part_h = scale_factor[:-1] * np.cumsum(1 / scale_factor[:-1] * (time[1:] - time[:-1]))
         evt_h = self.compute_event_h(time, scale_factor)
         H = dscale / scale_factor[:-1]
@@ -328,8 +308,9 @@ class CosmoHorizon:
         """
         def H_inv(z):
             return 1 / self.cosmo.H(z).to('Gyr-1').value
-        evt_h = compute_evt_h(time, scale_factor)
-        last_z = 1 / scale_factor[-1] - 1
+        evt_h = scale_factor[:-1] * np.cumsum(
+            (1 / scale_factor[:-1] * (time[1:] - time[:-1]))[::-1])[::-1]
+        last_z = 1 / scale_factor[-2] - 1
         evt_h += scale_factor[:-1] * scipy.integrate.quad(H_inv, -1 + 1e-20, last_z)[0]
         return evt_h
 
@@ -530,10 +511,10 @@ class AnimHorizon(object):
 
         self.photons.set_offsets(np.c_[self.photons_coords[2] * self.norm_factor,
                                        self.photons_coords[3] * self.norm_factor])
-        self.photons.set_color(self.cmap(self.a_em/self.a_t))
+        self.photons.set_color(self.cmap(self.a_em / self.a_t))
 
-        self.hubble_h_plot.set_data(1/self.H * self.circle[0] * self.norm_factor,
-                                    1/self.H * self.circle[1] * self.norm_factor)
+        self.hubble_h_plot.set_data(1 / self.H * self.circle[0] * self.norm_factor,
+                                    1 / self.H * self.circle[1] * self.norm_factor)
         return self.hubble_h_plot, self.evt_h_plot, self.parts, self.photons
 
     def animate(self, interval=5, blit=False, repeat=False):
