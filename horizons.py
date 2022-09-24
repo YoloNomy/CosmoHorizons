@@ -12,6 +12,11 @@ from scipy.optimize import fsolve
 from scipy.integrate._ivp.rk import OdeSolver
 from tqdm import tqdm
 
+__M_2_LY__ = 1.06e-16
+
+__S_2_Y__ = 3.17e-8
+
+__G__ = 6.6e-11 # m**3 / s**2 / kg
 
 # MONKEY PATCHING FROM :
 # https://towardsdatascience.com/do-stuff-at-each-ode-integration-step-monkey-patching-solve-ivp-359b39d5f2
@@ -77,7 +82,26 @@ def interp_nb(x_vals, x, y):
 
 
 @njit(cache=True)
-def update_r(r, ang, H_t, dt):
+def compute_grav(r, ang):
+    x = r * np.cos(ang)
+    y = r * np.sin(ang)
+    Gm = __G__ * 2e42 * __M_2_LY__**3/__S_2_Y__**2
+    Ax = np.zeros(len(x))
+    Ay = np.zeros(len(y))
+
+    for i in range(len(x)):
+        for j in range(len(x)):
+            if i != j:
+                N = np.sqrt((x[i] - x[j])**2 + (y[i] - y[j])**2)
+                Ax[i] += -Gm * (x[i] - x[j]) / N**3
+                Ay[i] += -Gm * (y[i] - y[j]) / N**3
+    Ax += -100 * Gm * x / np.abs(x**2 + y**2)**3
+    Ay += -100 * Gm * y / np.abs(x**2 + y**2)**3
+    return Ax, Ay
+
+
+@njit(cache=True)
+def update_r(r, ang, H_t, dt, Vx, Vy):
     r"""Update proper distance of non-moving object.
 
     Parameters
@@ -102,9 +126,13 @@ def update_r(r, ang, H_t, dt):
     ..maths:
         \frac{dr}{dt} = H(t) r
     """
+
     new_r = r + H_t * r * dt
-    xp, yp = new_r * np.cos(ang), new_r * np.sin(ang)
-    return new_r, ang, xp, yp
+    xp, yp = new_r * np.cos(ang) + Vx * dt, new_r * np.sin(ang) + Vy * dt
+    Ax, Ay = compute_grav(r, ang)
+    Vx += Ax * dt
+    Vy += Ay * dt
+    return new_r, ang, xp, yp, Vx, Vy
 
 
 @njit(cache=True)
@@ -457,9 +485,12 @@ class AnimHorizon(object):
 
         r0 = np.random.uniform(self.gen_lim[0], self.gen_lim[1], size=self.nparts)
         ang0 = np.random.uniform(0, 2 * np.pi, size=self.nparts)
+        V0 = np.random.normal(0, 9.4e-4, size=self.nparts)
+        angV0 = np.random.uniform(0, 2 * np.pi, size=self.nparts)
+        Vx0, Vy0 = V0 * np.cos(angV0), V0 * np.sin(angV0)
 
-        self.parts_coords = [r0, ang0, r0 * np.cos(ang0), r0 * np.sin(ang0)]
-        self.photons_coords = [r0, ang0, r0 * np.cos(ang0), r0 * np.sin(ang0), np.ones(len(r0))]
+        self.parts_coords = [r0, ang0, r0 * np.cos(ang0), r0 * np.sin(ang0), Vx0, Vy0]
+        self.photons_coords = [r0, ang0, r0 * np.cos(ang0), r0 * np.sin(ang0),  np.ones(len(r0))]
 
         self.obs, = self.ax.plot([0], [0], 'o', c='k', ms=3)
 
@@ -504,7 +535,9 @@ class AnimHorizon(object):
         self.parts_coords = update_r(self.parts_coords[0],
                                      self.parts_coords[1],
                                      self.H,
-                                     self.dt)
+                                     self.dt,
+                                     self.parts_coords[-2],
+                                     self.parts_coords[-1])
 
         self.photons_coords[:-1] = update_rw(self.photons_coords[0],
                                              self.photons_coords[1],
