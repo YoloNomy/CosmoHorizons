@@ -175,7 +175,12 @@ def set_cosmo(cosmo):
             raise ValueError(f'Available model are {astropy_mod}')
     elif isinstance(cosmo, dict):
         if 'Ode0' not in cosmo.keys():
-            cosmo['Ode0'] = 1 - cosmo['Om0']
+            if 'Ok0' in cosmo.keys():
+                Ok0 = cosmo['Ok0']
+                cosmo.pop('Ok0')
+            else:
+                Ok0 = 0.
+            cosmo['Ode0'] = 1 - cosmo['Om0'] - Ok0
         return acosmo.w0waCDM(**cosmo)
     else:
         return cosmo
@@ -209,7 +214,7 @@ class CosmoHorizon:
             self.cosmo = set_cosmo(cosmo)
             if self.cosmo.Ok0 < 0:
                 a = self.cosmo.Om0 / (self.cosmo.Om0 - 1)
-                z_amax = fsolve(self.cosmo.H, 1/a - 1)
+                z_amax = fsolve(self.cosmo.H, 1 / a - 1)
                 self.t_amax = self.cosmo.age(z_amax)[0].value
             else:
                 self.t_amax = np.inf
@@ -281,7 +286,7 @@ class CosmoHorizon:
                'dadt': dscale,
                'H': H,
                'part_h': part_h,
-               'evt_h': evt_h,
+               'evt_h': evt_h[:-1],
                'H_h': 1 / H
                }
 
@@ -310,10 +315,10 @@ class CosmoHorizon:
         """
         def H_inv(z):
             return 1 / self.cosmo.H(z).to('Gyr-1').value
-        evt_h = scale_factor[:-1] * np.cumsum(
-            (1 / scale_factor[:-1] * (time[1:] - time[:-1]))[::-1])[::-1]
-        last_z = 1 / scale_factor[-2] - 1
-        evt_h += scale_factor[:-1] * scipy.integrate.quad(H_inv, -1 + 1e-20, last_z)[0]
+        evt_h = scale_factor * np.array([np.trapz(1 / scale_factor[i:], x=time[i:])
+                                        for i in range(len(time))])
+        last_z = 1 / scale_factor[-1] - 1
+        evt_h += scale_factor * scipy.integrate.quad(H_inv, -1 + 1e-20, last_z)[0]
         return evt_h
 
     def plot(self, d1, d2, xlim=None, ylim=None):
