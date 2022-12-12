@@ -279,7 +279,7 @@ class CosmoHorizon:
         return da
 
     def compute_horizon(self, output_file, max_t=1e2, a0=1e-6, max_step=100):
-        """Compute the cosmology in funtio of time.
+        """Compute the cosmology in funtion of time.
 
         Parameters
         ----------
@@ -335,7 +335,7 @@ class CosmoHorizon:
         scale_factor : numpy.array(float)
             a(t).
 
-        Returns
+        Returns 
         -------
         numpy.array(float)
             Cosmological event horizon.
